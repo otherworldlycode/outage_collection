@@ -2,8 +2,12 @@ name: Poll Outage Summary
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # every 5 minutes
+    - cron: "*/2 * * * *"   # run every 2 minutes, self-throttled inside
   workflow_dispatch:
+
+concurrency:
+  group: polling
+  cancel-in-progress: false
 
 jobs:
   poll:
@@ -14,21 +18,68 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: true
-          fetch-depth: 0   # needed to access previous files
+          fetch-depth: 0
 
+      # ------------------------------------------------------------
+      # 1. Determine whether we SHOULD poll (self-throttling)
+      # ------------------------------------------------------------
+      - name: Check last poll time
+        id: check
+        run: |
+          # Desired interval in seconds (5 minutes)
+          interval=$((5 * 60))
+
+          # If no last_poll file exists, force polling
+          if [ ! -f .last_poll ]; then
+            echo "should_poll=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          last=$(cat .last_poll)
+          now=$(date -u +%s)
+          diff=$((now - last))
+
+          echo "Last poll was $diff seconds ago."
+
+          if [ $diff -ge $interval ]; then
+            echo "should_poll=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_poll=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ------------------------------------------------------------
+      # 2. Exit early if polling is not needed
+      # ------------------------------------------------------------
+      - name: Skip if not time yet
+        if: steps.check.outputs.should_poll == 'false'
+        run: |
+          echo "Skipping poll — interval not reached."
+
+      # ------------------------------------------------------------
+      # 3. Download new summary
+      # ------------------------------------------------------------
       - name: Download new summary
+        if: steps.check.outputs.should_poll == 'true'
         run: |
           mkdir -p data
           curl -s https://outagemap-data.cloud.coop/hwecoop/Hosted_Outage_Map/summary.json \
             -o new.json
 
+      # ------------------------------------------------------------
+      # 4. Determine latest saved snapshot
+      # ------------------------------------------------------------
       - name: Determine latest saved file
+        if: steps.check.outputs.should_poll == 'true'
         id: latest
         run: |
           latest_file=$(ls -1 data/*.json 2>/dev/null | sort | tail -n 1 || echo "")
           echo "latest_file=$latest_file" >> $GITHUB_OUTPUT
 
+      # ------------------------------------------------------------
+      # 5. Compare new snapshot to last saved
+      # ------------------------------------------------------------
       - name: Compare new summary to latest
+        if: steps.check.outputs.should_poll == 'true'
         id: compare
         run: |
           if [ -z "${{ steps.latest.outputs.latest_file }}" ]; then
@@ -41,19 +92,36 @@ jobs:
             fi
           fi
 
-      - name: Save new snapshot if changed
-        if: steps.compare.outputs.changed == 'true'
+      # ------------------------------------------------------------
+      # 6. Save new snapshot if changed
+      # ------------------------------------------------------------
+      - name: Save new snapshot
+        if: steps.check.outputs.should_poll == 'true' && steps.compare.outputs.changed == 'true'
         run: |
           timestamp=$(date -u +"%Y-%m-%dT%H-%M-%SZ")
           cp new.json data/$timestamp.json
+          echo "Saved new snapshot: $timestamp"
 
+      # ------------------------------------------------------------
+      # 7. Update last poll timestamp
+      # ------------------------------------------------------------
+      - name: Update last poll timestamp
+        if: steps.check.outputs.should_poll == 'true'
+        run: |
+          date -u +%s > .last_poll
+
+      # ------------------------------------------------------------
+      # 8. Commit and push changes
+      # ------------------------------------------------------------
       - name: Commit and push if changed
-        if: steps.compare.outputs.changed == 'true'
+        if: steps.check.outputs.should_poll == 'true' && steps.compare.outputs.changed == 'true'
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add data/
+
+          git add data/ .last_poll
           git commit -m "New outage snapshot at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" || echo "No changes"
+
           git pull --rebase origin main || true
           git push
         env:
