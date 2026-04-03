@@ -10,21 +10,23 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-
+      
       - name: Discover township list
         id: towns
         run: |
           sample=$(ls data/*.json | head -n 1)
       
-          # Extract township IDs and join into a single comma-separated line
           towns=$(jq -r '
             .regionDataSets[]
             | select(.id=="townships")
             | .regions[].id
-          ' "$sample" | sort | paste -sd "," -)
+          ' "$sample" | sort)
       
-          echo "towns=$towns" >> "$GITHUB_OUTPUT"
-
+          {
+            echo "towns<<EOF"
+            echo "$towns"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"  
 
       - name: Ensure data.csv exists with dynamic header
         run: |
@@ -39,6 +41,9 @@ jobs:
       - name: Process JSON files
         run: |
           towns="${{ steps.towns.outputs.towns }}"
+          
+          # Convert multi-line string into an array safely
+          IFS=$'\n' read -rd '' -a town_array <<< "$towns"
 
           for file in data/*.json; do
             ts=$(basename "$file" .json)
