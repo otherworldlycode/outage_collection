@@ -16,17 +16,15 @@ jobs:
         run: |
           sample=$(ls data/*.json | head -n 1)
       
+          # Extract township IDs and join into a single comma-separated line
           towns=$(jq -r '
             .regionDataSets[]
             | select(.id=="townships")
             | .regions[].id
-          ' "$sample" | sort)
+          ' "$sample" | sort | paste -sd "," -)
       
-          {
-            echo "towns<<EOF"
-            echo "$towns"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          echo "towns=$towns" >> "$GITHUB_OUTPUT"
+
 
       - name: Ensure data.csv exists with dynamic header
         run: |
