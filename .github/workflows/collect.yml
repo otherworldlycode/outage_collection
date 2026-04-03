@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 0   # needed to access previous files
 
       - name: Download new summary
@@ -54,6 +54,7 @@ jobs:
           git config user.email "actions@github.com"
           git add data/
           git commit -m "New outage snapshot at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" || echo "No changes"
+          git pull --rebase origin main || true
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
