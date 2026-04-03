@@ -41,7 +41,7 @@ jobs:
 
             # Read township list safely (newline-separated)
             towns="${{ steps.towns.outputs.towns }}"
-            IFS=$'\n' read -rd '' -a town_array <<< "$towns"
+            IFS=$'\n' read -r -a town_array <<< "$towns"
 
             for t in "${town_array[@]}"; do
               header="$header,$t"
@@ -56,7 +56,7 @@ jobs:
       - name: Process JSON files
         run: |
           towns="${{ steps.towns.outputs.towns }}"
-          IFS=$'\n' read -rd '' -a town_array <<< "$towns"
+          IFS=$'\n' read -r -a town_array <<< "$towns"
 
           for file in data/*.json; do
             ts=$(basename "$file" .json)
