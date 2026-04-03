@@ -23,7 +23,8 @@ jobs:
           fetch-depth: 0
 
       - name: Debug trigger
-        run: echo "Triggered by: $GITHUB_EVENT_NAME"
+        run: |
+          echo "Triggered by: $GITHUB_EVENT_NAME"
 
       - name: Check last poll time
         id: check
