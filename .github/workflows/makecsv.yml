@@ -11,6 +11,13 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Debug file state
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Files:"
+          ls -R .
+
       # ------------------------------------------------------------
       # 1. Discover township list (newline-separated, safe for spaces)
       # ------------------------------------------------------------
