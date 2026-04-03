@@ -46,15 +46,22 @@ jobs:
           if [ ! -f data.csv ]; then
             header="timestamp,totalOut,totalServed,outageCount"
 
-            # Read township list safely (newline-separated)
-            towns="${{ steps.towns.outputs.towns }}"
-            IFS=$'\n' read -r -a town_array <<< "$towns"
+           towns="${{ steps.towns.outputs.towns }}"
 
+            # Trim whitespace and replace spaces with underscores
+            towns=$(echo "$towns" | sed 's/^[ \t]*//;s/[ \t]*$//' | sed 's/ /_/g')
+            
+            # Load into array safely
+            mapfile -t town_array <<< "$towns"
+            
+            header="timestamp,totalOut,totalServed,outageCount"
+            
             for t in "${town_array[@]}"; do
               header="$header,$t"
             done
-
+            
             echo "$header" > data.csv
+
           fi
 
       # ------------------------------------------------------------
