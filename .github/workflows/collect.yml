@@ -2,8 +2,10 @@ name: Poll Outage Summary
 
 on:
   schedule:
-    - cron: "*/2 * * * *"   # run every 2 minutes, self-throttled inside
+    - cron: "*/2 * * * *"   # run every 2 minutes
   workflow_dispatch:
+  repository_dispatch:
+    types: [self_poll]
 
 concurrency:
   group: polling
@@ -20,16 +22,17 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
+      - name: Debug trigger
+        run: echo "Triggered by: $GITHUB_EVENT_NAME"
+
       # ------------------------------------------------------------
       # 1. Determine whether we SHOULD poll (self-throttling)
       # ------------------------------------------------------------
       - name: Check last poll time
         id: check
         run: |
-          # Desired interval in seconds (5 minutes)
-          interval=$((5 * 60))
+          interval=$((5 * 60))  # 5 minutes
 
-          # If no last_poll file exists, force polling
           if [ ! -f .last_poll ]; then
             echo "should_poll=true" >> $GITHUB_OUTPUT
             exit 0
@@ -47,16 +50,12 @@ jobs:
             echo "should_poll=false" >> $GITHUB_OUTPUT
           fi
 
-      # ------------------------------------------------------------
-      # 2. Exit early if polling is not needed
-      # ------------------------------------------------------------
       - name: Skip if not time yet
         if: steps.check.outputs.should_poll == 'false'
-        run: |
-          echo "Skipping poll — interval not reached."
+        run: echo "Skipping poll — interval not reached."
 
       # ------------------------------------------------------------
-      # 3. Download new summary
+      # 2. Download new summary
       # ------------------------------------------------------------
       - name: Download new summary
         if: steps.check.outputs.should_poll == 'true'
@@ -66,7 +65,7 @@ jobs:
             -o new.json
 
       # ------------------------------------------------------------
-      # 4. Determine latest saved snapshot
+      # 3. Determine latest saved snapshot
       # ------------------------------------------------------------
       - name: Determine latest saved file
         if: steps.check.outputs.should_poll == 'true'
@@ -76,7 +75,7 @@ jobs:
           echo "latest_file=$latest_file" >> $GITHUB_OUTPUT
 
       # ------------------------------------------------------------
-      # 5. Compare new snapshot to last saved
+      # 4. Compare new snapshot to last saved
       # ------------------------------------------------------------
       - name: Compare new summary to latest
         if: steps.check.outputs.should_poll == 'true'
@@ -93,7 +92,7 @@ jobs:
           fi
 
       # ------------------------------------------------------------
-      # 6. Save new snapshot if changed
+      # 5. Save new snapshot if changed
       # ------------------------------------------------------------
       - name: Save new snapshot
         if: steps.check.outputs.should_poll == 'true' && steps.compare.outputs.changed == 'true'
@@ -103,15 +102,14 @@ jobs:
           echo "Saved new snapshot: $timestamp"
 
       # ------------------------------------------------------------
-      # 7. Update last poll timestamp
+      # 6. Update last poll timestamp
       # ------------------------------------------------------------
       - name: Update last poll timestamp
         if: steps.check.outputs.should_poll == 'true'
-        run: |
-          date -u +%s > .last_poll
+        run: date -u +%s > .last_poll
 
       # ------------------------------------------------------------
-      # 8. Commit and push changes
+      # 7. Commit and push changes
       # ------------------------------------------------------------
       - name: Commit and push if changed
         if: steps.check.outputs.should_poll == 'true' && steps.compare.outputs.changed == 'true'
@@ -124,5 +122,20 @@ jobs:
 
           git pull --rebase origin main || true
           git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------
+      # 8. Self-dispatch next run
+      # ------------------------------------------------------------
+      - name: Self-dispatch next poll
+        if: steps.check.outputs.should_poll == 'true'
+        run: |
+          echo "Triggering next self poll..."
+          curl -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/dispatches \
+            -d '{"event_type": "self_poll"}'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
