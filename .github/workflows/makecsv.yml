@@ -121,7 +121,8 @@ jobs:
             echo "$row" >> data.csv
             echo "Added row for $ts"
           done
-      - name: Debug: show data.csv status
+      
+      - name: Debug show data.csv status
         run: |
           ls -al .
           echo "Git status:"
