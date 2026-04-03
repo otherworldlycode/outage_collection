@@ -10,45 +10,58 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-      
+
+      # ------------------------------------------------------------
+      # 1. Discover township list (newline-separated, safe for spaces)
+      # ------------------------------------------------------------
       - name: Discover township list
         id: towns
         run: |
           sample=$(ls data/*.json | head -n 1)
-      
+
           towns=$(jq -r '
             .regionDataSets[]
             | select(.id=="townships")
             | .regions[].id
           ' "$sample" | sort)
-      
+
           {
             echo "towns<<EOF"
             echo "$towns"
             echo "EOF"
-          } >> "$GITHUB_OUTPUT"  
+          } >> "$GITHUB_OUTPUT"
 
+      # ------------------------------------------------------------
+      # 2. Create CSV header if missing
+      # ------------------------------------------------------------
       - name: Ensure data.csv exists with dynamic header
         run: |
           if [ ! -f data.csv ]; then
             header="timestamp,totalOut,totalServed,outageCount"
-            for t in ${{ steps.towns.outputs.towns }}; do
+
+            # Read township list safely (newline-separated)
+            towns="${{ steps.towns.outputs.towns }}"
+            IFS=$'\n' read -rd '' -a town_array <<< "$towns"
+
+            for t in "${town_array[@]}"; do
               header="$header,$t"
             done
+
             echo "$header" > data.csv
           fi
 
+      # ------------------------------------------------------------
+      # 3. Process JSON files and append missing rows
+      # ------------------------------------------------------------
       - name: Process JSON files
         run: |
           towns="${{ steps.towns.outputs.towns }}"
-          
-          # Convert multi-line string into an array safely
           IFS=$'\n' read -rd '' -a town_array <<< "$towns"
 
           for file in data/*.json; do
             ts=$(basename "$file" .json)
 
-            # Skip if timestamp already in CSV
+            # Skip if timestamp already exists
             if grep -q "$ts" data.csv; then
               continue
             fi
@@ -60,7 +73,7 @@ jobs:
             row="$ts,$totalOut,$totalServed,$outageCount"
 
             # Append each township's numberOut
-            for t in $towns; do
+            for t in "${town_array[@]}"; do
               val=$(jq -r --arg t "$t" '
                 .regionDataSets[]
                 | select(.id=="townships")
@@ -69,8 +82,10 @@ jobs:
                 | .numberOut
               ' "$file")
 
-              # Default to 0 if empty
-              if [ -z "$val" ]; then val=0; fi
+              # Default to 0 if missing or null
+              if [ -z "$val" ] || [ "$val" = "null" ]; then
+                val=0
+              fi
 
               row="$row,$val"
             done
@@ -78,8 +93,13 @@ jobs:
             echo "$row" >> data.csv
           done
 
+      # ------------------------------------------------------------
+      # 4. Commit changes safely with rebase
+      # ------------------------------------------------------------
       - name: Commit CSV if changed
         run: |
+          git pull --rebase origin main || true
+
           if git diff --quiet; then
             echo "No changes to commit."
           else
@@ -87,6 +107,5 @@ jobs:
             git config user.email "github-actions@github.com"
             git add data.csv
             git commit -m "Update data.csv with township columns"
-            git pull --rebase origin main || true
             git push
           fi
