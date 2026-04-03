@@ -1,0 +1,86 @@
+name: Build CSV from JSON history
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-csv:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Discover township list
+        id: towns
+        run: |
+          # Find any JSON file to extract township names
+          sample=$(ls data/*.json | head -n 1)
+
+          # Extract township IDs, sorted
+          towns=$(jq -r '
+            .regionDataSets[]
+            | select(.id=="townships")
+            | .regions[].id
+          ' "$sample" | sort)
+
+          echo "towns=$towns" >> $GITHUB_OUTPUT
+
+      - name: Ensure data.csv exists with dynamic header
+        run: |
+          if [ ! -f data.csv ]; then
+            header="timestamp,totalOut,totalServed,outageCount"
+            for t in ${{ steps.towns.outputs.towns }}; do
+              header="$header,$t"
+            done
+            echo "$header" > data.csv
+          fi
+
+      - name: Process JSON files
+        run: |
+          towns="${{ steps.towns.outputs.towns }}"
+
+          for file in data/*.json; do
+            ts=$(basename "$file" .json)
+
+            # Skip if timestamp already in CSV
+            if grep -q "$ts" data.csv; then
+              continue
+            fi
+
+            totalOut=$(jq '[.regionDataSets[].regions[].numberOut] | add' "$file")
+            totalServed=$(jq '.totalServed' "$file")
+            outageCount=$(jq '.outages | length' "$file")
+
+            row="$ts,$totalOut,$totalServed,$outageCount"
+
+            # Append each township's numberOut
+            for t in $towns; do
+              val=$(jq -r --arg t "$t" '
+                .regionDataSets[]
+                | select(.id=="townships")
+                | .regions[]
+                | select(.id==$t)
+                | .numberOut
+              ' "$file")
+
+              # Default to 0 if empty
+              if [ -z "$val" ]; then val=0; fi
+
+              row="$row,$val"
+            done
+
+            echo "$row" >> data.csv
+          done
+
+      - name: Commit CSV if changed
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+          else
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git add data.csv
+            git commit -m "Update data.csv with township columns"
+            git push
+          fi
