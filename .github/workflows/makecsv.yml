@@ -8,8 +8,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ------------------------------------------------------------
+      # 0. Checkout main branch (CRITICAL FIX)
+      # ------------------------------------------------------------
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
       # Debug: show working directory and files
       - name: Debug initial state
@@ -51,12 +57,11 @@ jobs:
 
             towns="${{ steps.towns.outputs.towns }}"
 
-            # Trim ALL whitespace and replace spaces with underscores
+            # Trim whitespace and replace spaces with underscores
             towns=$(echo "$towns" \
               | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
               | sed 's/ /_/g')
 
-            # Load into array safely
             mapfile -t town_array <<< "$towns"
 
             header="timestamp,totalOut,totalServed,outageCount"
@@ -79,7 +84,6 @@ jobs:
         run: |
           towns="${{ steps.towns.outputs.towns }}"
 
-          # Normalize township names
           towns=$(echo "$towns" \
             | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
             | sed 's/ /_/g')
@@ -121,27 +125,28 @@ jobs:
             echo "$row" >> data.csv
             echo "Added row for $ts"
           done
-      
-      - name: Debug show data.csv status
-        run: |
-          ls -al .
-          echo "Git status:"
-          git status
 
       # ------------------------------------------------------------
-      # 4. Commit changes safely with rebase
+      # 4. Commit changes (FIXED ORDER)
       # ------------------------------------------------------------
       - name: Commit CSV if changed
         run: |
+          echo "Git status BEFORE staging:"
+          git status
+
+          git add -f data.csv
+
+          echo "Git status AFTER staging:"
+          git status
+
+          if git diff --cached --quiet; then
+            echo "No staged changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Update data.csv with township columns"
+
+          # Pull AFTER commit to avoid wiping staged changes
           git pull --rebase origin main || true
 
-          if git diff --quiet; then
-            echo "No changes to commit."
-          else
-            echo "Committing updated data.csv..."
-            git config user.name "github-actions"
-            git config user.email "github-actions@github.com"
-            git add data.csv
-            git commit -m "Update data.csv with township columns"
-            git push
-          fi
+          git push
