@@ -11,15 +11,18 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Debug file state
+      # Debug: show working directory and files
+      - name: Debug initial state
         run: |
           echo "Current directory:"
           pwd
           echo "Files:"
-          ls -R .
+          ls -al .
+          echo "Data folder:"
+          ls -al data
 
       # ------------------------------------------------------------
-      # 1. Discover township list (newline-separated, safe for spaces)
+      # 1. Discover township list (newline-separated)
       # ------------------------------------------------------------
       - name: Discover township list
         id: towns
@@ -44,24 +47,29 @@ jobs:
       - name: Ensure data.csv exists with dynamic header
         run: |
           if [ ! -f data.csv ]; then
-            header="timestamp,totalOut,totalServed,outageCount"
+            echo "Creating data.csv header..."
 
-           towns="${{ steps.towns.outputs.towns }}"
+            towns="${{ steps.towns.outputs.towns }}"
 
-            # Trim whitespace and replace spaces with underscores
-            towns=$(echo "$towns" | sed 's/^[ \t]*//;s/[ \t]*$//' | sed 's/ /_/g')
-            
+            # Trim ALL whitespace and replace spaces with underscores
+            towns=$(echo "$towns" \
+              | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
+              | sed 's/ /_/g')
+
             # Load into array safely
             mapfile -t town_array <<< "$towns"
-            
+
             header="timestamp,totalOut,totalServed,outageCount"
-            
+
             for t in "${town_array[@]}"; do
               header="$header,$t"
             done
-            
-            echo "$header" > data.csv
 
+            echo "$header" > data.csv
+            echo "Header created:"
+            echo "$header"
+          else
+            echo "data.csv already exists, skipping header creation."
           fi
 
       # ------------------------------------------------------------
@@ -70,15 +78,23 @@ jobs:
       - name: Process JSON files
         run: |
           towns="${{ steps.towns.outputs.towns }}"
-          IFS=$'\n' read -r -a town_array <<< "$towns"
+
+          # Normalize township names
+          towns=$(echo "$towns" \
+            | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
+            | sed 's/ /_/g')
+
+          mapfile -t town_array <<< "$towns"
 
           for file in data/*.json; do
             ts=$(basename "$file" .json)
 
-            # Skip if timestamp already exists
             if grep -q "$ts" data.csv; then
+              echo "Skipping $ts (already exists)"
               continue
             fi
+
+            echo "Processing $ts..."
 
             totalOut=$(jq '[.regionDataSets[].regions[].numberOut] | add' "$file")
             totalServed=$(jq '.totalServed' "$file")
@@ -86,7 +102,6 @@ jobs:
 
             row="$ts,$totalOut,$totalServed,$outageCount"
 
-            # Append each township's numberOut
             for t in "${town_array[@]}"; do
               val=$(jq -r --arg t "$t" '
                 .regionDataSets[]
@@ -96,7 +111,6 @@ jobs:
                 | .numberOut
               ' "$file")
 
-              # Default to 0 if missing or null
               if [ -z "$val" ] || [ "$val" = "null" ]; then
                 val=0
               fi
@@ -105,6 +119,7 @@ jobs:
             done
 
             echo "$row" >> data.csv
+            echo "Added row for $ts"
           done
 
       # ------------------------------------------------------------
@@ -117,6 +132,7 @@ jobs:
           if git diff --quiet; then
             echo "No changes to commit."
           else
+            echo "Committing updated data.csv..."
             git config user.name "github-actions"
             git config user.email "github-actions@github.com"
             git add data.csv
