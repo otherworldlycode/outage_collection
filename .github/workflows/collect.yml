@@ -2,7 +2,7 @@ name: Poll Outage Summary
 
 on:
   schedule:
-    - cron: "*/2 * * * *"   # run every 2 minutes
+    - cron: "*/2 * * * *"
   workflow_dispatch:
   repository_dispatch:
     types: [self_poll]
@@ -25,13 +25,10 @@ jobs:
       - name: Debug trigger
         run: echo "Triggered by: $GITHUB_EVENT_NAME"
 
-      # ------------------------------------------------------------
-      # 1. Determine whether we SHOULD poll (self-throttling)
-      # ------------------------------------------------------------
       - name: Check last poll time
         id: check
         run: |
-          interval=$((5 * 60))  # 5 minutes
+          interval=$((5 * 60))
 
           if [ ! -f .last_poll ]; then
             echo "should_poll=true" >> $GITHUB_OUTPUT
@@ -54,9 +51,6 @@ jobs:
         if: steps.check.outputs.should_poll == 'false'
         run: echo "Skipping poll — interval not reached."
 
-      # ------------------------------------------------------------
-      # 2. Download new summary
-      # ------------------------------------------------------------
       - name: Download new summary
         if: steps.check.outputs.should_poll == 'true'
         run: |
@@ -64,9 +58,6 @@ jobs:
           curl -s https://outagemap-data.cloud.coop/hwecoop/Hosted_Outage_Map/summary.json \
             -o new.json
 
-      # ------------------------------------------------------------
-      # 3. Determine latest saved snapshot
-      # ------------------------------------------------------------
       - name: Determine latest saved file
         if: steps.check.outputs.should_poll == 'true'
         id: latest
@@ -74,9 +65,6 @@ jobs:
           latest_file=$(ls -1 data/*.json 2>/dev/null | sort | tail -n 1 || echo "")
           echo "latest_file=$latest_file" >> $GITHUB_OUTPUT
 
-      # ------------------------------------------------------------
-      # 4. Compare new snapshot to last saved
-      # ------------------------------------------------------------
       - name: Compare new summary to latest
         if: steps.check.outputs.should_poll == 'true'
         id: compare
@@ -91,9 +79,6 @@ jobs:
             fi
           fi
 
-      # ------------------------------------------------------------
-      # 5. Save new snapshot if changed
-      # ------------------------------------------------------------
       - name: Save new snapshot
         if: steps.check.outputs.should_poll == 'true' && steps.compare.outputs.changed == 'true'
         run: |
@@ -101,16 +86,10 @@ jobs:
           cp new.json data/$timestamp.json
           echo "Saved new snapshot: $timestamp"
 
-      # ------------------------------------------------------------
-      # 6. Update last poll timestamp
-      # ------------------------------------------------------------
       - name: Update last poll timestamp
         if: steps.check.outputs.should_poll == 'true'
         run: date -u +%s > .last_poll
 
-      # ------------------------------------------------------------
-      # 7. Commit and push changes
-      # ------------------------------------------------------------
       - name: Commit and push if changed
         if: steps.check.outputs.should_poll == 'true' && steps.compare.outputs.changed == 'true'
         run: |
@@ -125,9 +104,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ------------------------------------------------------------
-      # 8. Self-dispatch next run
-      # ------------------------------------------------------------
       - name: Self-dispatch next poll
         if: steps.check.outputs.should_poll == 'true'
         run: |
