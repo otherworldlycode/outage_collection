@@ -14,17 +14,19 @@ jobs:
       - name: Discover township list
         id: towns
         run: |
-          # Find any JSON file to extract township names
           sample=$(ls data/*.json | head -n 1)
-
-          # Extract township IDs, sorted
+      
           towns=$(jq -r '
             .regionDataSets[]
             | select(.id=="townships")
             | .regions[].id
           ' "$sample" | sort)
-
-          echo "towns=$towns" >> $GITHUB_OUTPUT
+      
+          {
+            echo "towns<<EOF"
+            echo "$towns"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Ensure data.csv exists with dynamic header
         run: |
