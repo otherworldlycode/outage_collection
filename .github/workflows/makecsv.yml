@@ -17,7 +17,6 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      # Debug: show working directory and files
       - name: Debug initial state
         run: |
           echo "Current directory:"
@@ -28,7 +27,7 @@ jobs:
           ls -al data
 
       # ------------------------------------------------------------
-      # 1. Discover township list (newline-separated)
+      # 1. Discover township list
       # ------------------------------------------------------------
       - name: Discover township list
         id: towns
@@ -57,7 +56,6 @@ jobs:
 
             towns="${{ steps.towns.outputs.towns }}"
 
-            # Trim whitespace and replace spaces with underscores
             towns=$(echo "$towns" \
               | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
               | sed 's/ /_/g')
@@ -78,7 +76,7 @@ jobs:
           fi
 
       # ------------------------------------------------------------
-      # 3. Process JSON files and append missing rows
+      # 3. Process JSON files
       # ------------------------------------------------------------
       - name: Process JSON files
         run: |
@@ -127,12 +125,16 @@ jobs:
           done
 
       # ------------------------------------------------------------
-      # 4. Commit changes (FIXED ORDER)
+      # 4. Commit changes (FIXED)
       # ------------------------------------------------------------
       - name: Commit CSV if changed
         run: |
           echo "Git status BEFORE staging:"
           git status
+
+          # FIX: Set identity so commit works
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
 
           git add -f data.csv
 
@@ -146,7 +148,6 @@ jobs:
 
           git commit -m "Update data.csv with township columns"
 
-          # Pull AFTER commit to avoid wiping staged changes
           git pull --rebase origin main || true
 
           git push
